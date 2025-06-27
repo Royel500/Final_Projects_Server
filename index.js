@@ -1,10 +1,10 @@
 const express = require('express');
 const cors = require('cors');
-const app =express();
-const { ObjectId } = require('mongodb');
-const port = process.env.PORT || 3000 ;
+const app = express();
+const port = process.env.PORT || 3500;
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const stripe = require('stripe')(process.env.PAYMENT_GAITEWAY_KEY);
 
 
 
@@ -54,16 +54,49 @@ const percelCollection = client.db('Final_Projects').collection('percelCollectio
 
 
     // -----get all parcels or filter by userEmail if provided-----
-    app.get('/sendPercel', async (req, res) => {
-      const email = req.query.email;
-      let query = userEmail ? { createBy:userEmail}:{};
-      if (email) {
-        query.userEmail = email;
-      }
-      const result = await percelCollection.find(query).toArray();
-      res.send(result);
-    });
+app.get('/sendPercel', async (req, res) => {
+  const email = req.query.email;
+  let query = {};
+  if (email) {
+    query.createBy = email; // Use the correct field name
+  }
+  const result = await percelCollection.find(query).toArray();
+  res.send(result);
+});
 
+
+// Get a single parcel by ID
+app.get('/sendPercel/:id', async (req, res) => {
+  const id = req.params.id;
+
+  try {
+    const query = { _id: new ObjectId(id) };
+    const result = await percelCollection.findOne(query);
+    if (result) {
+      res.send(result);
+    } else {
+      res.status(404).send({ message: 'Parcel not found' });
+    }
+  } catch (error) {
+    res.status(500).send({ message: 'Invalid ID or Server Error' });
+  }
+});
+
+// -----------payment-----------
+app.post('/create-payment-intent', async (req, res) => {
+  try {
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: 1000, // Amount in cents
+      currency: 'usd',
+     payment_method_types: ['card', 'us_bank_account'], // Specify desired payment methods
+
+      // Add other options as needed
+    });
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
         // DELETE parcel by id
     app.delete('/sendPercel/:id', async (req, res) => {
