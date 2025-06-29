@@ -84,9 +84,10 @@ app.get('/sendPercel/:id', async (req, res) => {
 
 // -----------payment-----------
 app.post('/create-payment-intent', async (req, res) => {
+  const amountInCents = req.body.amountInCents;
   try {
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: 1000, // Amount in cents
+      amount: amountInCents, // Amount in cents
       currency: 'usd',
      payment_method_types: ['card', 'us_bank_account'], // Specify desired payment methods
 
