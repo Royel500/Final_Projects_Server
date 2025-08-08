@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const app = express();
-const port = process.env.PORT || 3500;
+const port = process.env.PORT || 3500 ;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 const stripe = require('stripe')(process.env.PAYMENT_GAITEWAY_KEY);
@@ -12,15 +12,12 @@ const admin = require("firebase-admin");
 app.use(cors());
 app.use(express.json());
 
+const decodedKey =Buffer.from(process.env.ADMIN_KEY, 'base64').toString('utf8');
+const serviceAccount =JSON.parse(decodedKey);
 
-
-
-const serviceAccount = require("./firebase_admin_key.json");
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  admin.initializeApp({
+  credential:admin.credential.cert(serviceAccount),
 });
-
 
 
 
@@ -38,20 +35,20 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
 
+    
 // ---collection---
 
-const percelCollection   = client.db('Final_Projects').collection('percelCollection');
-    const paymentHistory = client.db('Final_Projects').collection('payments');
-  const userCollection   = client.db('Final_Projects').collection('users');
+  const percelCollection  = client.db('Final_Projects').collection('percelCollection');
+  const paymentHistory    = client.db('Final_Projects').collection('payments');
+  const userCollection    = client.db('Final_Projects').collection('users');
   const riderCollection   = client.db('Final_Projects').collection('riders');
 
 // ---verify token------
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).send({ message: 'Unauthorized access' });
+    return res.status(401).send({ message: 'Unauthorized  access' });
   }
 
   const token = authHeader.split(' ')[1];
@@ -65,6 +62,47 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+// PATCH /users/:email - update user profile and return updated user
+app.patch('/users/update/:email', async (req, res) => {
+  const email = req.params.email?.toLowerCase();
+  const { email: _, role: __, ...safeUpdates } = req.body;
+
+  try {
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ success: false, message: 'Invalid email' });
+    }
+
+    const result = await userCollection.updateOne(
+      { email: email },  // Match lowercased email consistently
+      { $set: safeUpdates }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).json({ success: false, message: 'User not found or no changes made' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      modifiedCount: result.modifiedCount
+    });
+  } catch (err) {
+    console.error('Error in PATCH /api/users/:email:', err);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// Example for MongoDB
+
+app.get('/users/:email', async (req, res) => {
+  try {
+    const email = req.params.email.toLowerCase();
+    const user = await userCollection.findOne({ email });
+    user ? res.send(user) : res.status(404).send('User not found');
+  } catch (error) {
+    res.status(500).send('Server error');
+  }
+});
 
 // -----------veryfy admin role----------
 
@@ -116,6 +154,94 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
+// ---------admin overview ----------------------------------------------
+
+// ----------admin-----------
+app.get('/admin/dashboard/stats', async (req, res) => {
+  try {
+    const [
+      riders,
+      clients,
+      totalUsers, // Added total users count
+      parcels,
+      payments
+    ] = await Promise.all([
+      riderCollection.estimatedDocumentCount(),
+      userCollection.countDocuments({ role: "user" }),
+      userCollection.estimatedDocumentCount(), // Total users count
+      percelCollection.estimatedDocumentCount(),
+      paymentHistory.aggregate([
+        { $group: { _id: null, totalAmount: { $sum: "$amount" } } }
+      ]).toArray()
+    ]);
+
+    res.json({
+      success: true,
+      stats: {
+        riders,
+        clients,
+        totalUsers, // Include total users in response
+        parcels,
+        payments: payments[0]?.totalAmount || 0
+      }
+    });
+  } catch (error) {
+    console.error('Dashboard stats error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to fetch dashboard statistics'
+    });
+  }
+});
+    // Additional optimized endpoints for the admin dashboard
+// Recent activity endpoint
+app.get('/admin/recent-activity', async (req, res) => {
+  try {
+    const [parcels, payments, riders] = await Promise.all([
+      percelCollection.find()
+        .sort({ _id: -1 })
+        .limit(5)
+        .toArray(),
+      paymentHistory.find()
+        .sort({ date: -1 })
+        .limit(5)
+        .toArray(),
+      riderCollection.find()
+        .sort({ _id: -1 })
+        .limit(5)
+        .toArray()
+    ]);
+
+    const activities = [
+      ...parcels.map(p => ({
+        type: 'delivery',
+        description: `New parcel from ${p.senderName}`,
+        timestamp: p.createdAt,
+        user: p.CreateBy
+      })),
+      ...payments.map(p => ({
+        type: 'payment',
+        description: `Payment of $${p.amount} received`,
+        timestamp: p.date,
+        user: p.userEmail
+      })),
+      ...riders.map(r => ({
+        type: 'user',
+        description: `New rider ${r.name} registered`,
+        timestamp: r.createdAt,
+        user: r.email
+      }))
+    ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+     .slice(0, 5);
+
+    res.json(activities);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch recent activity' });
+  }
+});
+
+
+
 
   // -----post the percel on the database ----------
 
@@ -135,12 +261,12 @@ app.post('/api/users', async (req, res) => {
 
     
     // ✅ GET /pending-riders
-    app.get('/pending',verifyToken, async (req, res) => {
+    app.get('/pending', async (req, res) => {
       const pending = await riderCollection.find({ status: 'pending' }).toArray();
       res.send(pending);
     });
     // ✅ GET /Active-riders
-    app.get('/active',verifyToken, async (req, res) => {
+    app.get('/active', async (req, res) => {
       const pending = await riderCollection.find({ status: 'active' }).toArray();
       res.send(pending);
     });
@@ -267,7 +393,7 @@ app.patch('/parcels/mark-delivered/:id', async (req, res) => {
 
     // ----update the status--------
 // ---- Approve rider and update user role ----
-app.patch('/riders/approve/:id',verifyToken, async (req, res) => {
+app.patch('/riders/approve/:id', async (req, res) => {
   const id = req.params.id;
   const { status } = req.body; // expecting { status: 'active' }
 
@@ -307,7 +433,7 @@ app.patch('/riders/approve/:id',verifyToken, async (req, res) => {
 // -------admin  role---------------
 
 // ✅ Add route to update user role to 'admin' or remove 'admin'
-app.patch('/users/role',verifyToken, async (req, res) => {
+app.patch('/users/role', async (req, res) => {
   const { email, role } = req.body; // role can be 'admin' or 'user'
 
   if (!email || !role) {
@@ -332,7 +458,7 @@ app.patch('/users/role',verifyToken, async (req, res) => {
 });
 
 // ✅ Add route to search for a user by email
-app.get('/users/search',verifyToken, async (req, res) => {
+app.get('/users/search', async (req, res) => {
   const email = req.query.email;
 
   if (!email) {
@@ -359,7 +485,7 @@ app.get('/users/search',verifyToken, async (req, res) => {
 // -----------role check admin or not -----------
 
 // GET: get role by email
-app.get('/users/role/:email',verifyToken, async (req, res) => {
+app.get('/users/role/:email', async (req, res) => {
   const email = req.params.email;
 
   try {
@@ -376,7 +502,7 @@ app.get('/users/role/:email',verifyToken, async (req, res) => {
 
 
 // -----------riders details-------------------
-app.get('/riders/:id',verifyToken, async (req, res) => {
+app.get('/riders/:id', async (req, res) => {
   try {
     const id = req.params.id;
     const rider = await riderCollection.findOne({ _id: new ObjectId(id) });
@@ -391,18 +517,8 @@ app.get('/riders/:id',verifyToken, async (req, res) => {
   }
 });
 
-
-
-    // -----get all data from database---------
-
-    // app.get('/sendPercel', async (req, res) => {
-    //   const result = await percelCollection.find().toArray();
-    //   res.send(result);
-    // });
-
-
     // -----get all parcels or filter by userEmail if provided-----
-app.get('/sendPercel',verifyToken, async (req, res) => {
+app.get('/sendPercel', async (req, res) => {
   const email = req.query.email;
 
   let query = {};
@@ -418,7 +534,7 @@ app.get('/sendPercel',verifyToken, async (req, res) => {
 
 
 // Get a single parcel by ID
-app.get('/sendPercel/:id',verifyToken, async (req, res) => {
+app.get('/sendPercel/:id', async (req, res) => {
   const id = req.params.id;
 
   try {
@@ -496,7 +612,7 @@ app.post('/payments', async (req, res) => {
   }
 });
     // GET: Payment history by user
-   app.get('/payments',verifyToken, async (req, res) => {
+   app.get('/payments', async (req, res) => {
   const email = req.query.email;
   try {
     const result = await paymentHistory.find({ userEmail: email }).sort({ date: -1 }).toArray();
@@ -541,7 +657,6 @@ app.post('/payments', async (req, res) => {
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
-    // await client.close();
   }
 }
 run().catch(console.dir);
@@ -550,9 +665,8 @@ run().catch(console.dir);
 
 
 
-
 app.get('/' ,(req,res)=>{
-    res.send('Hi I am here from the Final Projects')
+    res.send('Hi I am here from the Assignment_12 Last Projects')
 });
 
 app.listen(port, () =>{
