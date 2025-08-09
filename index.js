@@ -62,6 +62,58 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+
+// Add this to your server routes
+app.get('/riders/check', async (req, res) => {
+  try {
+    const email = req.query.email;
+    const rider = await riderCollection.findOne({ email });
+    res.json({ 
+      exists: !!rider,
+      status: rider?.status || ''
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error checking application' });
+  }
+});  
+
+// Search parcels by contact number (sender or receiver)
+app.get('/parcels/search', async (req, res) => {
+    try {
+        const contactNumber = req.query.contact;
+        if (!contactNumber) {
+            return res.status(400).json({ error: 'Contact number is required' });
+        }
+
+        const parcels = await percelCollection.find({
+            $or: [
+                { senderContact: contactNumber },
+                { receiverContact: contactNumber }
+            ]
+        }).toArray();
+
+        res.json(parcels);
+    } catch (error) {
+        console.error('Search error:', error);
+        res.status(500).json({ error: 'Failed to search parcels' });
+    }
+});
+// ------admin page--Payment history-------
+app.get('/adminPaymentList', async (req, res) => {
+
+  try {
+    const payments = await paymentHistory
+      .find()               
+      .sort({ date: -1 })   
+      .toArray();
+
+    res.status(200).json(payments);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch payment history' });
+  }
+});
+
+
 // PATCH /users/:email - update user profile and return updated user
 app.patch('/users/update/:email', async (req, res) => {
   const email = req.params.email?.toLowerCase();
