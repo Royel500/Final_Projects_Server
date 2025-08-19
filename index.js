@@ -675,19 +675,37 @@ app.post('/payments', async (req, res) => {
 });
    
 
-
-// ----------delete---------
-   app.delete('/riders/delete/:id', async (req, res) => {
+app.get('/sendPercel/:id', async (req, res) => {
   const id = req.params.id;
   try {
-    const result = await riderCollection.deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 1) {
-      res.send({ success: true, message: 'Rider deleted successfully' });
+    const parcel = await parcelCollection.findOne({ _id: new ObjectId(id) });
+    if (parcel) {
+      res.send(parcel);
     } else {
-      res.status(404).send({ success: false, message: 'Rider not found' });
+      res.status(404).send({ message: 'Parcel not found' });
     }
   } catch (error) {
-    console.error('Delete rider error:', error);
+    res.status(500).send({ message: 'Server error' });
+  }
+});
+
+
+// ----------reject rider----------
+app.patch('/riders/reject/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await riderCollection.updateOne(
+      { _id: new ObjectId(id) },       // find the rider
+      { $set: { status: 'rejected' } } // update the status
+    );
+
+    if (result.modifiedCount === 1) {
+      res.send({ success: true, message: 'Rider status updated to rejected' });
+    } else {
+      res.status(404).send({ success: false, message: 'Rider not found or already rejected' });
+    }
+  } catch (error) {
+    console.error('Reject rider error:', error);
     res.status(500).send({ success: false, message: 'Server error' });
   }
 });
@@ -718,7 +736,7 @@ run().catch(console.dir);
 
 
 app.get('/' ,(req,res)=>{
-    res.send('Hi I am here from the Assignment_12 Last Projects')
+    res.send('Hi I am here from the  Last Projects')
 });
 
 app.listen(port, () =>{
