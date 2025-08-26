@@ -43,7 +43,7 @@ async function run() {
   const paymentHistory    = client.db('Final_Projects').collection('payments');
   const userCollection    = client.db('Final_Projects').collection('users');
   const riderCollection   = client.db('Final_Projects').collection('riders');
-
+  const reviewCollection  = client.db('Final_Projects').collection('review');
 // ---verify token------
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -61,6 +61,38 @@ const verifyToken = async (req, res, next) => {
     res.status(403).send({ message: 'Forbidden: Invalid token' });
   }
 };
+
+// ----------client review-----------
+
+  // POST - Save review
+  app.post("/reviews", async (req, res) => {
+    try {
+      const review = req.body;
+
+      if (!review.name || !review.email || !review.review) {
+        return res.status(400).json({ message: "Name, Email and Review are required!" });
+      }
+
+      const result = await reviewCollection.insertOne(review);
+
+      res.status(201).json({ insertedId: result.insertedId });
+    } catch (error) {
+      console.error("Error saving review:", error);
+      res.status(500).json({ message: "Failed to save review" });
+    }
+  });
+
+  // GET - Get all reviews
+  app.get("/reviews", async (req, res) => {
+    try {
+      const reviews = await reviewCollection.find().sort({ createdAt: -1 }).toArray();
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      res.status(500).json({ message: "Failed to fetch reviews" });
+    }
+  });
+
 
 
 // Add this to your server routes
