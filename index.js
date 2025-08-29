@@ -62,6 +62,87 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+
+// -----------user activity--------------
+// Get all completed tasks for a rider
+// GET completed tasks and earnings for a rider
+app.get('/rider/tasks/completed/:email', async (req, res) => {
+  const email = req.params.email.toLowerCase();
+  try {
+    const tasks = await percelCollection
+      .find({ delivery_boy_email: email, delivery_status: 'delivered' })
+      .toArray();
+
+    res.status(200).json(tasks);
+  } catch (err) {
+    console.error('Error fetching completed tasks:', err);
+    res.status(500).json({ message: 'Failed to fetch completed tasks' });
+  }
+});
+
+// POST /api/users/activity
+app.post('/api/users/activity', async (req, res) => {
+  try {
+    const { email, isActive } = req.body;
+    if (!email) {
+      return res.status(400).send({ success: false, message: 'Email is required' });
+    }
+
+    const updateData = { isActive };
+    // When logging out (isActive = false), also update lastLogout
+    if (!isActive) {
+      updateData.lastLogout = new Date();
+    }
+
+    const result = await userCollection.updateOne(
+      { email },
+      { $set: updateData }
+    );
+
+    if (result.matchedCount > 0) {
+      res.send({ success: true, message: 'Activity updated' });
+    } else {
+      res.status(404).send({ success: false, message: 'User not found' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ success: false, message: 'Server error' });
+  }
+});
+
+
+// GET /api/users
+app.get('/api/users', async (req, res) => {
+  try {
+    const { search = '', role = 'all', page = 1, limit = 10 } = req.query;
+
+    const query = {};
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+    if (role !== 'all') {
+      query.role = role;
+    }
+
+    const totalUsers = await userCollection.countDocuments(query);
+
+    const users = await userCollection
+      .find(query)
+      .sort({ isActive: -1, name: 1 }) // optional: active users first
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit))
+      .toArray();
+
+    res.send({ success: true, users, totalUsers });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ success: false, message: 'Server error' });
+  }
+});
+
 // ----------client review-----------
 
   // POST - Save review
@@ -130,6 +211,7 @@ app.get('/parcels/search', async (req, res) => {
         res.status(500).json({ error: 'Failed to search parcels' });
     }
 });
+
 // ------admin page--Payment history-------
 app.get('/adminPaymentList', async (req, res) => {
 
@@ -178,7 +260,7 @@ app.patch('/users/update/:email', async (req, res) => {
 
 // Example for MongoDB
 
-app.get('/users/:email', async (req, res) => {
+app.get('/usersss/:email', async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const user = await userCollection.findOne({ email });
@@ -187,6 +269,44 @@ app.get('/users/:email', async (req, res) => {
     res.status(500).send('Server error');
   }
 });
+
+
+// ✅ Add route to search for a user by email
+app.get('/users/searches', async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).send({ success: false, message: 'Email is required' });
+    }
+
+    const user = await userCollection.findOne({ email: { $regex: `^${email}$`, $options: 'i' } });
+
+
+    if (!user) {
+      return res.status(404).send({ success: false, message: 'User not found' });
+    }
+
+    res.send({ success: true, user });
+  } catch (error) {
+    console.error('Error searching user:', error);
+    res.status(500).send({ success: false, message: 'Server error' });
+  }
+});
+
+
+// =========get all users-------
+
+app.get('/users', async (req, res) => {
+  try {
+    const users = await userCollection.find().toArray();
+    res.send({ success: true, users });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ success: false, message: 'Server error' });
+  }
+});
+
 
 // -----------veryfy admin role----------
 
@@ -296,27 +416,28 @@ app.get('/admin/recent-activity', async (req, res) => {
         .toArray()
     ]);
 
-    const activities = [
-      ...parcels.map(p => ({
-        type: 'delivery',
-        description: `New parcel from ${p.senderName}`,
-        timestamp: p.createdAt,
-        user: p.CreateBy
-      })),
-      ...payments.map(p => ({
-        type: 'payment',
-        description: `Payment of $${p.amount} received`,
-        timestamp: p.date,
-        user: p.userEmail
-      })),
-      ...riders.map(r => ({
-        type: 'user',
-        description: `New rider ${r.name} registered`,
-        timestamp: r.createdAt,
-        user: r.email
-      }))
-    ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-     .slice(0, 5);
+const activities = [
+  ...parcels.map(p => ({
+    type: 'delivery',
+    description: `New parcel from ${p.senderName}`,
+    timestamp: p.createdAt || Date.now(),   // ✅ fallback
+    user: p.CreateBy
+  })),
+  ...payments.map(p => ({
+    type: 'payment',
+    description: `Payment of $${p.amount} received`,
+    timestamp: p.date || p.createdAt || Date.now(),  // ✅ fallback
+    user: p.userEmail
+  })),
+  ...riders.map(r => ({
+    type: 'user',
+    description: `New rider ${r.name} registered`,
+    timestamp: r.createdAt || Date.now(),  // ✅ fallback
+    user: r.email
+  }))
+].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+ .slice(0, 5);
+
 
     res.json(activities);
   } catch (error) {
@@ -541,30 +662,6 @@ app.patch('/users/role', async (req, res) => {
   }
 });
 
-// ✅ Add route to search for a user by email
-app.get('/users/search', async (req, res) => {
-  const email = req.query.email;
-
-  if (!email) {
-    return res.status(400).send({ success: false, message: 'Email query is required.' });
-  }
-
-  try {
-    const user = await userCollection.findOne(
-      { email },
-      { projection: { name: 1, email: 1, role: 1, createdAt: 1 } }
-    );
-
-    if (user) {
-      res.send({ success: true, user });
-    } else {
-      res.status(404).send({ success: false, message: 'User not found.' });
-    }
-  } catch (error) {
-    console.error('User search error:', error);
-    res.status(500).send({ success: false, message: 'Server error.' });
-  }
-});
 
 // -----------role check admin or not -----------
 
@@ -750,6 +847,13 @@ app.patch('/riders/reject/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await percelCollection.deleteOne(query);
+      res.send(result);
+    });
+        // DELETE parcel by id
+    app.delete('/riders/delete/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await riderCollection.deleteOne(query);
       res.send(result);
     });
 
